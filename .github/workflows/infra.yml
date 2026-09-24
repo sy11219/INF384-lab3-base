@@ -24,11 +24,33 @@ jobs:
   # Sustituir el paso centinela por la implementacion.
   validar:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Sin implementar
-        run: |
-          echo "::error::El job 'validar' no esta implementado."
-          exit 1
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Verificar formato
+        working-directory: infra
+        run: terraform fmt -check
+
+      - name: Inicializar Terraform
+        working-directory: infra
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Validar Terraform
+        working-directory: infra
+        run: terraform validate
 
   # TODO
   # Analizar el codigo declarado contra politicas de infraestructura.
@@ -53,11 +75,18 @@ jobs:
   # Sustituir el paso centinela por la implementacion.
   politicas:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Sin implementar
-        run: |
-          echo "::error::El job 'politicas' no esta implementado."
-          exit 1
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Analisis de politicas IaC con Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'config'
+          scan-ref: 'infra'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
 
   # TODO
   # Calcular el plan, guardarlo en disco y exportarlo a tfplan.json.
@@ -89,12 +118,57 @@ jobs:
   plan:
     needs: [validar, politicas]
     runs-on: ubuntu-latest
-    steps:
-      - name: Sin implementar
-        run: |
-          echo "::error::El job 'plan' no esta implementado."
-          exit 1
 
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Inicializar Terraform
+        working-directory: infra
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Crear plan
+        working-directory: infra
+        run: terraform plan -out=tfplan
+
+      - name: Convertir plan a JSON
+        working-directory: infra
+        run: terraform show -json tfplan > tfplan.json
+
+      - name: Publicar plan en el Pull Request
+        uses: borchero/terraform-plan-comment@v2
+        with:
+          token: ${{ github.token }}
+          planfile: infra/tfplan
+
+      - name: Guardar plan para aplicar
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: infra/tfplan
+          if-no-files-found: error
+
+      - name: Guardar plan JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-json
+          path: infra/tfplan.json
+          if-no-files-found: error
   # TODO
   # Aplicar el plan que produjo el job anterior, sin recalcularlo.
   # Corre solo desde la rama principal y solo si la compuerta del plan paso.
@@ -104,8 +178,32 @@ jobs:
     needs: plan
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+
     steps:
-      - name: Sin implementar
-        run: |
-          echo "::error::El job 'aplicar' no esta implementado."
-          exit 1
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Instalar Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Inicializar Terraform
+        working-directory: infra
+        run: terraform init -backend-config=backend.hcl
+
+      - name: Descargar plan generado
+        uses: actions/download-artifact@v5
+        with:
+          name: tfplan
+          path: infra/
+
+      - name: Aplicar plan guardado
+        working-directory: infra
+        run: terraform apply tfplan
