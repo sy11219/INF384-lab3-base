@@ -168,7 +168,6 @@ jobs:
             semgrep/semgrep:latest \
             semgrep scan --config auto /src
 
-  # TODO
   # Construir la imagen de la aplicacion y publicarla en el registro privado.
   #
   # Depende de los cuatro jobs anteriores y corre solo desde la rama principal.
@@ -194,18 +193,65 @@ jobs:
   # El job desplegar consume la salida 'digest' de este job. El formato es
   # <registro>/<aplicacion>@sha256:... Exponer solo el sha del digest, o
   # nombrar la salida de otra manera, rompe el despliegue.
-  #
-  # outputs:
-  #   digest: # TODO
-  #
-  # Sustituir el paso centinela por la implementacion.
+
   publicar:
+    needs:
+      - calidad
+      - secretos
+      - dependencias
+      - estatico
+
+    if: github.ref == 'refs/heads/main'
+
     runs-on: ubuntu-latest
+
+    outputs:
+      digest: ${{ steps.publicar.outputs.digest }}
+
     steps:
-      - name: Sin implementar
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Obtener nombre y version de la aplicacion
+        id: app
         run: |
-          echo "::error::El job 'publicar' no esta implementado."
-          exit 1
+          echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Login en Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Construir y publicar imagen
+        id: publicar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=${{ steps.app.outputs.name }}
+
+      - name: Publicar tag de version
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ steps.app.outputs.version }}" \
+            "${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ github.sha }}"
+
+      - name: Publicar tag de ambiente
+        run: |
+          docker buildx imagetools create \
+            --tag "${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:prd" \
+            "${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ github.sha }}"
 
   # Este job viene completo y no se modifica.
   # Las estrategias de despliegue y la verificacion posterior son contenido
