@@ -200,30 +200,28 @@ jobs:
       - secretos
       - dependencias
       - estatico
-
     if: github.ref == 'refs/heads/main'
-
     runs-on: ubuntu-latest
 
     outputs:
-      digest: ${{ steps.publicar.outputs.digest }}
+      digest: ${{ steps.digest.outputs.digest }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Obtener nombre y version de la aplicacion
+      - name: Obtener nombre y SHA corto
         id: app
         run: |
           echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: us-east-1
 
       - name: Login en Amazon ECR
@@ -231,27 +229,27 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Construir y publicar imagen
-        id: publicar
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ github.sha }}
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ steps.app.outputs.sha }}
           labels: |
             org.opencontainers.image.title=${{ steps.app.outputs.name }}
 
-      - name: Publicar tag de version
-        run: |
-          docker buildx imagetools create \
-            --tag "${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ steps.app.outputs.version }}" \
-            "${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ github.sha }}"
-
-      - name: Publicar tag de ambiente
+      - name: Publicar tag prd
         run: |
           docker buildx imagetools create \
             --tag "${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:prd" \
-            "${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ github.sha }}"
+            "${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}:${{ steps.app.outputs.sha }}"
+
+      - name: Exponer digest completo
+        id: digest
+        run: |
+          echo "digest=${{ steps.ecr.outputs.registry }}/${{ steps.app.outputs.name }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
   # Este job viene completo y no se modifica.
   # Las estrategias de despliegue y la verificacion posterior son contenido
