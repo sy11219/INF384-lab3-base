@@ -73,6 +73,7 @@ jobs:
   #
   # Sustituir el paso centinela por la implementacion.
   calidad:
+    needs: pruebas
     runs-on: ubuntu-latest
     steps:
       - name: Checkout completo para analizar codigo nuevo
