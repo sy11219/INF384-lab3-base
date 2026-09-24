@@ -75,10 +75,22 @@ jobs:
   calidad:
     runs-on: ubuntu-latest
     steps:
-      - name: Sin implementar
-        run: |
-          echo "::error::El job 'calidad' no esta implementado."
-          exit 1
+      - name: Checkout completo para analizar codigo nuevo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Descargar cobertura
+        uses: actions/download-artifact@v5
+        with:
+          name: cobertura
+          path: coverage/
+
+      - name: Analisis de calidad en SonarQube Cloud
+        continue-on-error: true
+        uses: SonarSource/sonarqube-scan-action@v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   # TODO
   # Buscar credenciales escritas en el codigo y en el historial del repositorio.
@@ -95,10 +107,15 @@ jobs:
   secretos:
     runs-on: ubuntu-latest
     steps:
-      - name: Sin implementar
-        run: |
-          echo "::error::El job 'secretos' no esta implementado."
-          exit 1
+      - name: Checkout del historial completo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Buscar secretos en codigo e historial
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # TODO
   # Contrastar el arbol de dependencias declarado en package-lock.json contra
@@ -116,10 +133,18 @@ jobs:
   dependencias:
     runs-on: ubuntu-latest
     steps:
-      - name: Sin implementar
-        run: |
-          echo "::error::El job 'dependencias' no esta implementado."
-          exit 1
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Auditar arbol completo de dependencias
+        continue-on-error: true
+        run: npm audit --package-lock-only --audit-level=low
 
   # TODO
   # Buscar patrones explotables en el codigo fuente.
@@ -131,10 +156,16 @@ jobs:
   estatico:
     runs-on: ubuntu-latest
     steps:
-      - name: Sin implementar
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Analisis estatico con Semgrep
+        continue-on-error: true
         run: |
-          echo "::error::El job 'estatico' no esta implementado."
-          exit 1
+          docker run --rm \
+            -v "$PWD:/src" \
+            semgrep/semgrep:latest \
+            semgrep scan --config auto /src
 
   # TODO
   # Construir la imagen de la aplicacion y publicarla en el registro privado.
